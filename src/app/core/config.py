@@ -10,7 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
-    # OpenAI Configuration
+    # OpenAI Configuration. BaseSettings this reads the variables from the given file
     openai_api_key: str
     openai_model_name: str = "gpt-4o-mini"
     openai_embedding_model_name: str = "text-embedding-3-large"
@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     # Retrieval Configuration
     retrieval_k: int = 4
 
+  #give the file where the setting are there that means most of the time env
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

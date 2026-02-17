@@ -27,8 +27,13 @@ def retrieval_tool(query: str):
     docs = retrieve(query, k=4)
 
     # Serialize chunks into formatted string (content)
-    context = serialize_chunks(docs)
+    context, citation_map = serialize_chunks(docs)
 
-    # Return tuple: (serialized content, artifact documents)
+    # Return tuple: (serialized content with citations, artifact with docs and citation map)
     # This follows LangChain's content_and_artifact response format
-    return context, docs
+    artifact = {
+        "docs": docs,
+        "citation_map": citation_map
+    }
+    
+    return context, artifact

@@ -5,8 +5,13 @@ from typing import Any, Dict
 
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
+from langgraph.types import Command
+from ...utils.langgraph_vercel_adapter import stream_langgraph_to_vercel
 
-from .agents import retrieval_node, summarization_node, verification_node
+from typing import AsyncGenerator
+
+
+from .agents import retrieval_node, summarization_node, verification_node, planning_node
 from .state import QAState
 
 
@@ -24,12 +29,14 @@ def create_qa_graph() -> Any:
     builder = StateGraph(QAState)
 
     # Add nodes for each agent
+    builder.add_node("planning", planning_node)
     builder.add_node("retrieval", retrieval_node)
     builder.add_node("summarization", summarization_node)
     builder.add_node("verification", verification_node)
 
-    # Define linear flow: START -> retrieval -> summarization -> verification -> END
-    builder.add_edge(START, "retrieval")
+    # Define linear flow: START -> planning -> retrieval -> summarization -> verification -> END
+    builder.add_edge(START, "planning")
+    builder.add_edge("planning", "retrieval")
     builder.add_edge("retrieval", "summarization")
     builder.add_edge("summarization", "verification")
     builder.add_edge("verification", END)
@@ -43,7 +50,7 @@ def get_qa_graph() -> Any:
     return create_qa_graph()
 
 
-def run_qa_flow(question: str) -> Dict[str, Any]:
+async def run_qa_flow(message: str, thread_id: str, resume: bool = False):
     """Run the complete multi-agent QA flow for a question.
 
     This is the main entry point for the QA system. It:
@@ -60,15 +67,31 @@ def run_qa_flow(question: str) -> Dict[str, Any]:
         - `draft_answer`: Initial draft answer from summarization agent
         - `context`: Retrieved context from vector store
     """
+    config = {"configurable": {"thread_id": thread_id}}
     graph = get_qa_graph()
-
-    initial_state: QAState = {
-        "question": question,
+    
+    if resume:
+        # Resume execution with user input
+        initial_state = Command(resume=message)
+    else:
+        initial_state: QAState = {
+        "question": message,
         "context": None,
         "draft_answer": None,
         "answer": None,
     }
 
     final_state = graph.invoke(initial_state)
+    
+    # Stream using the pluggable adapter!
+    # No need to specify stream_mode or graph-specific logic
+    # Configure custom data fields to stream alongside messages
+    async for event in stream_langgraph_to_vercel(
+        graph= graph,
+        initial_state=initial_state,
+        config=config,
+        custom_data_fields=["answer","context", "draft_answer", "citation"],
+    ):
+        yield event
 
-    return final_state
+    print(final_state)

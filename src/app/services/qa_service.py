@@ -6,11 +6,16 @@ or agent implementation details.
 """
 
 from typing import Dict, Any
+from typing import AsyncGenerator
+
 
 from ..core.agents.graph import run_qa_flow
 
 
-def answer_question(question: str) -> Dict[str, Any]:
+def answer_question(message: str,
+    thread_id: str,
+    resume: bool = False
+) -> AsyncGenerator[str, None]:
     """Run the multi-agent QA flow for a given question.
 
     Args:
@@ -19,4 +24,4 @@ def answer_question(question: str) -> Dict[str, Any]:
     Returns:
         Dictionary containing at least `answer` and `context` keys.
     """
-    return run_qa_flow(question)
+    return run_qa_flow(message,thread_id,resume)

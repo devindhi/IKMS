@@ -2,10 +2,14 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse # Added import
 
-from .models import QuestionRequest, QAResponse
+from .models import QuestionRequest, QAResponse, VercelChatRequest
 from .services.qa_service import answer_question
 from .services.indexing_service import index_pdf_file
+from .utils.message_transformer import extract_user_message
+from .utils.http_headers import patch_vercel_headers
 
 
 app = FastAPI(
@@ -17,6 +21,21 @@ app = FastAPI(
     ),
     version="0.1.0",
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",  # Vite dev server
+        "http://localhost:3000",  # Alternative dev port
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
+
 
 
 @app.exception_handler(Exception)
@@ -40,8 +59,8 @@ async def unhandled_exception_handler(
     )
 
 
-@app.post("/qa", response_model=QAResponse, status_code=status.HTTP_200_OK)
-async def qa_endpoint(payload: QuestionRequest) -> QAResponse:
+@app.post("/qa")
+async def qa_endpoint(request: VercelChatRequest):
     """Submit a question about the vector databases paper.
 
     US-001 requirements:
@@ -51,7 +70,7 @@ async def qa_endpoint(payload: QuestionRequest) -> QAResponse:
     - Delegate to the multi-agent RAG service layer for processing
     """
 
-    question = payload.question.strip()
+    question = extract_user_message(request.messages)
     if not question:
         # Explicit validation beyond Pydantic's type checking to ensure
         # non-empty questions.
@@ -61,12 +80,21 @@ async def qa_endpoint(payload: QuestionRequest) -> QAResponse:
         )
 
     # Delegate to the service layer which runs the multi-agent QA graph
-    result = answer_question(question)
+  
+    thread_id = request.thread_id or request.id
+    result = answer_question(question, thread_id, request.resume)
+    print(f"Thread ID: {thread_id}")
 
-    return QAResponse(
-        answer=result.get("answer", ""),
-        context=result.get("context", ""),
+    response = StreamingResponse(
+        result, media_type="text/event-stream",
     )
+    
+    return patch_vercel_headers(response)
+    # return QAResponse(
+    #     answer=result.get("answer", ""),
+    #     context=result.get("context", ""),
+    #     citations = result.get("citations","")
+    
 
 
 @app.post("/index-pdf", status_code=status.HTTP_200_OK)
