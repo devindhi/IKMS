@@ -3,9 +3,8 @@
 This module defines three LangChain agents (Retrieval, Summarization,
 Verification) and thin node functions that LangGraph uses to invoke them.
 """
-
 from typing import List
-
+import json
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
@@ -22,6 +21,7 @@ from .tools import retrieval_tool
 
 def _extract_last_ai_content(messages: List[object]) -> str:
     """Extract the content of the last AIMessage in a messages list."""
+
     for msg in reversed(messages):
         if isinstance(msg, AIMessage):
             return str(msg.content)
@@ -44,16 +44,14 @@ def _extract_plan_and_subquestions(messages: List[object]) -> tuple[str, list[st
         return "", []
     
     # Split into plan and sub-questions sections
+
     plan_text = ""
     sub_questions = []
-    
     lines = content.split('\n')
     current_section = None
     
     for line in lines:
         line = line.strip()
-        
-        # Detect section headers
         if line.lower().startswith('plan:'):
             current_section = 'plan'
             continue
@@ -61,13 +59,10 @@ def _extract_plan_and_subquestions(messages: List[object]) -> tuple[str, list[st
             current_section = 'subquestions'
             continue
         
-        # Add content to appropriate section
         if current_section == 'plan' and line:
             plan_text += line + '\n'
         elif current_section == 'subquestions' and line:
-            # Extract query from lines like: - "vector database advantages"
             if line.startswith('-') or line.startswith('•'):
-                # Remove leading dash/bullet and quotes
                 query = line.lstrip('-•').strip().strip('"').strip("'")
                 if query:
                     sub_questions.append(query)
@@ -82,14 +77,10 @@ def _extract_citation_map(messages: List[object]) -> dict:
         Dictionary mapping citation IDs to metadata
     """
     citation_map = {}
-    
     for msg in messages:
-        # Check if message is a ToolMessage with artifact
         if hasattr(msg, 'artifact') and isinstance(msg.artifact, dict):
             if 'citation_map' in msg.artifact:
-                # Merge citation maps from multiple tool calls
                 citation_map.update(msg.artifact['citation_map'])
-    
     return citation_map
 
 
@@ -118,28 +109,32 @@ verification_agent = create_agent(
     system_prompt=VERIFICATION_SYSTEM_PROMPT,
 )
 
+
 def planning_node(state: QAState) -> QAState:
     """Planning Agent node: analyzes the question to guide retrieval.
     
     This node passes the question through the planning agent
     for any initial analysis before retrieval.
     """
-
     print('PLANNINGGG')
     question = state["question"]
 
     result = planning_agent.invoke({"messages": [HumanMessage(content=question)]})
-    
-    # Extract plan and sub-questions
     messages = result.get("messages", [])
     plan, sub_questions = _extract_plan_and_subquestions(messages)
     
     return {
-        "plan": plan,
-        "sub_questions": sub_questions  
-    }
-    
-    
+    "plan": plan,
+    "sub_questions": sub_questions,
+    "messages": [
+        AIMessage(
+            content=f"__META__:{json.dumps({'plan': plan, 'sub_questions': sub_questions})}__STEP__:plan__LABEL__:🧠 Research plan generated.",
+            name="plan",
+        )
+    ]
+}
+
+
 def retrieval_node(state: QAState) -> QAState:
     """Retrieval Agent node: gathers context from vector store.
 
@@ -160,16 +155,12 @@ def retrieval_node(state: QAState) -> QAState:
 
     Sub-questions to address:
     {chr(10).join(f"{i}. {sq}" for i, sq in enumerate(sub_questions, 1))}
-
     """
    
-    # Invoke retrieval agent with combined prompt
     result = retrieval_agent.invoke({"messages": [HumanMessage(content=retrieval_prompt)]})
-
     messages = result.get("messages", [])
     context = ""
 
-    # Prefer the last ToolMessage content (from retrieval_tool)
     for msg in reversed(messages):
         if isinstance(msg, ToolMessage):
             context = str(msg.content)
@@ -178,10 +169,17 @@ def retrieval_node(state: QAState) -> QAState:
     citation_map = _extract_citation_map(messages)
     print("retrievallll")
     print(citation_map)
+
     return {
-        "context": context,           # For downstream agents to read
-        "citations": citation_map  # For verification and user display
-    }
+    "context": context,
+    "citations": citation_map,
+    "messages": [
+        AIMessage(
+            content=f"__META__:{json.dumps({'citations': citation_map})}__STEP__:retrieval__LABEL__:📚 Retrieved supporting sources.",
+            name="retrieval",
+        )
+    ]
+}
 
 
 def summarization_node(state: QAState) -> QAState:
@@ -193,17 +191,14 @@ def summarization_node(state: QAState) -> QAState:
     - Stores the draft answer in `state["draft_answer"]`.
     - Citation map is already in state from retrieval node.
     """
-   
     question = state["question"]
     plan = state.get("plan", "")
     sub_questions = state.get("sub_questions", [])
     context = state.get("context", "")
-    citation_map = state.get("citation", {})
+    citation_map = state.get("citations", {})
   
-    # Format sub-questions
     sub_questions_formatted = "\n".join(f"{i}. {sq}" for i, sq in enumerate(sub_questions, 1))
     
-    # Comprehensive prompt with citation instructions
     user_content = f"""Original Question:
 {question}
 
@@ -220,7 +215,6 @@ Citation:
 {citation_map}
 """
 
-    
     result = summarization_agent.invoke(
         {"messages": [HumanMessage(content=user_content)]}
     )
@@ -228,6 +222,10 @@ Citation:
     draft_answer = _extract_last_ai_content(messages)
        
     return {
+        "messages": [AIMessage(
+            content="__STEP__:drafting__LABEL__:✍️ Drafting answer...",
+            name="summarization",
+        )],
         "draft_answer": draft_answer,
     }
 
@@ -243,17 +241,15 @@ def verification_node(state: QAState) -> QAState:
     - Agent checks for hallucinations and unsupported claims.
     - Stores the final verified answer (with citations) in `state["answer"]`.
     """
-    
     question = state["question"]
     plan = state.get("plan", "")
     sub_questions = state.get("sub_questions", [])
     context = state.get("context", "")
     draft_answer = state.get("draft_answer", "")
-    citation_map = state.get("citation", {})
+    citation_map = state.get("citations", {})
     
     print(f"\n📋 Original Question:\n{question}\n")
     
-    # Count citations in draft
     draft_citations = [cid for cid in citation_map.keys() if f"[{cid}]" in draft_answer]
     
     print(f"📝 DRAFT ANSWER TO VERIFY:")
@@ -263,10 +259,8 @@ def verification_node(state: QAState) -> QAState:
     print(f"Draft length: {len(draft_answer)} characters")
     print(f"Citations in draft: {len(draft_citations)} ({', '.join(draft_citations)})\n")
     
-    # Format sub-questions
     sub_questions_formatted = "\n".join(f"{i}. {sq}" for i, sq in enumerate(sub_questions, 1))
     
-    # Format citation map for reference
     citation_reference = "\n".join(
         f"{cid}: Page {meta['page']}, Source: {meta['source']}"
         for cid, meta in citation_map.items()
@@ -291,14 +285,12 @@ Draft Answer to Verify:
 {draft_answer}
 """
 
-    
     result = verification_agent.invoke(
         {"messages": [HumanMessage(content=user_content)]}
     )
     messages = result.get("messages", [])
     answer = _extract_last_ai_content(messages)
     
-    # Count citations in final answer
     final_citations = [cid for cid in citation_map.keys() if f"[{cid}]" in answer]
     
     print(f"\n✅ FINAL VERIFIED ANSWER:")
@@ -307,32 +299,26 @@ Draft Answer to Verify:
     print("=" * 80)
     print(f"Citations in final: {len(final_citations)} ({', '.join(final_citations)})\n")
     
-    # Show comparison
+    added_citations = set(final_citations) - set(draft_citations)
+    removed_citations = set(draft_citations) - set(final_citations)
+
     print("📊 COMPARISON:")
     print(f"   Draft length:     {len(draft_answer)} chars / ~{len(draft_answer.split())} words")
     print(f"   Final length:     {len(answer)} chars / ~{len(answer.split())} words")
     print(f"   Change:           {len(answer) - len(draft_answer):+d} chars")
     print(f"   Draft citations:  {len(draft_citations)} {draft_citations}")
     print(f"   Final citations:  {len(final_citations)} {final_citations}")
-    
-    # Show which citations were added/removed
-    added_citations = set(final_citations) - set(draft_citations)
-    removed_citations = set(draft_citations) - set(final_citations)
-    
     if added_citations:
         print(f"   ✅ Added:         {', '.join(added_citations)}")
     if removed_citations:
         print(f"   ❌ Removed:       {', '.join(removed_citations)}")
     if not added_citations and not removed_citations:
         print(f"   ℹ️  Citations unchanged")
-    
     print("\n" + "=" * 80)
     print("✅ VERIFICATION COMPLETED")
     print("=" * 80 + "\n")
 
     return {
+        "messages": [AIMessage(content=answer, name="answer")],
         "answer": answer,
-        "messages": state.get("messages", []) + [
-            AIMessage(content=answer)
-        ]
     }

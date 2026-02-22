@@ -6,6 +6,8 @@ from typing import Any, Dict
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 from langgraph.types import Command
+from langchain_core.messages import HumanMessage
+
 from ...utils.langgraph_vercel_adapter import stream_langgraph_to_vercel
 
 from typing import AsyncGenerator
@@ -74,14 +76,19 @@ async def run_qa_flow(message: str, thread_id: str, resume: bool = False):
         # Resume execution with user input
         initial_state = Command(resume=message)
     else:
-        initial_state: QAState = {
-        "question": message,
-        "context": None,
-        "draft_answer": None,
-        "answer": None,
-    }
+        initial_state = QAState(
+        messages=[HumanMessage(content=message)],
+        question=message,
+        context=None,
+        draft_answer=None,
+        answer=None,
+        plan=None,
+        sub_questions=None,
+        citations=None,
+    )
+    
 
-    final_state = graph.invoke(initial_state)
+    # final_state = graph.invoke(initial_state)
     
     # Stream using the pluggable adapter!
     # No need to specify stream_mode or graph-specific logic
@@ -90,8 +97,7 @@ async def run_qa_flow(message: str, thread_id: str, resume: bool = False):
         graph= graph,
         initial_state=initial_state,
         config=config,
-        custom_data_fields=["answer","context", "draft_answer", "citation"],
+        custom_data_fields=["plan","retrieval","answer"],
     ):
         yield event
 
-    print(final_state)
