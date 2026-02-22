@@ -83,6 +83,7 @@ async def qa_endpoint(request: VercelChatRequest):
   
     thread_id = request.thread_id or request.id
     result = answer_question(question, thread_id, request.resume)
+    
     print(f"Thread ID: {thread_id}")
 
     response = StreamingResponse(
