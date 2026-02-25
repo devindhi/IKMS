@@ -116,7 +116,6 @@ def planning_node(state: QAState) -> QAState:
     This node passes the question through the planning agent
     for any initial analysis before retrieval.
     """
-    print('PLANNINGGG')
     question = state["question"]
 
     result = planning_agent.invoke({"messages": [HumanMessage(content=question)]})
@@ -167,7 +166,6 @@ def retrieval_node(state: QAState) -> QAState:
             break
 
     citation_map = _extract_citation_map(messages)
-    print("retrievallll")
     print(citation_map)
 
     return {
@@ -248,16 +246,6 @@ def verification_node(state: QAState) -> QAState:
     draft_answer = state.get("draft_answer", "")
     citation_map = state.get("citations", {})
     
-    print(f"\n📋 Original Question:\n{question}\n")
-    
-    draft_citations = [cid for cid in citation_map.keys() if f"[{cid}]" in draft_answer]
-    
-    print(f"📝 DRAFT ANSWER TO VERIFY:")
-    print("-" * 80)
-    print(draft_answer)
-    print("-" * 80)
-    print(f"Draft length: {len(draft_answer)} characters")
-    print(f"Citations in draft: {len(draft_citations)} ({', '.join(draft_citations)})\n")
     
     sub_questions_formatted = "\n".join(f"{i}. {sq}" for i, sq in enumerate(sub_questions, 1))
     
@@ -267,23 +255,23 @@ def verification_node(state: QAState) -> QAState:
     )
     
     user_content = f"""Original Question:
-{question}
+    {question}
 
-Expected Answer Structure (Plan):
-{plan}
+    Expected Answer Structure (Plan):
+    {plan}
 
-Sub-questions That Should Be Addressed:
-{sub_questions_formatted}
+    Sub-questions That Should Be Addressed:
+    {sub_questions_formatted}
 
-Retrieved Context (with Citation IDs):
-{context}
+    Retrieved Context (with Citation IDs):
+    {context}
 
-Citation Reference Map:
-{citation_reference}
+    Citation Reference Map:
+    {citation_reference}
 
-Draft Answer to Verify:
-{draft_answer}
-"""
+    Draft Answer to Verify:
+    {draft_answer}
+    """
 
     result = verification_agent.invoke(
         {"messages": [HumanMessage(content=user_content)]}
@@ -291,33 +279,6 @@ Draft Answer to Verify:
     messages = result.get("messages", [])
     answer = _extract_last_ai_content(messages)
     
-    final_citations = [cid for cid in citation_map.keys() if f"[{cid}]" in answer]
-    
-    print(f"\n✅ FINAL VERIFIED ANSWER:")
-    print("=" * 80)
-    print(answer)
-    print("=" * 80)
-    print(f"Citations in final: {len(final_citations)} ({', '.join(final_citations)})\n")
-    
-    added_citations = set(final_citations) - set(draft_citations)
-    removed_citations = set(draft_citations) - set(final_citations)
-
-    print("📊 COMPARISON:")
-    print(f"   Draft length:     {len(draft_answer)} chars / ~{len(draft_answer.split())} words")
-    print(f"   Final length:     {len(answer)} chars / ~{len(answer.split())} words")
-    print(f"   Change:           {len(answer) - len(draft_answer):+d} chars")
-    print(f"   Draft citations:  {len(draft_citations)} {draft_citations}")
-    print(f"   Final citations:  {len(final_citations)} {final_citations}")
-    if added_citations:
-        print(f"   ✅ Added:         {', '.join(added_citations)}")
-    if removed_citations:
-        print(f"   ❌ Removed:       {', '.join(removed_citations)}")
-    if not added_citations and not removed_citations:
-        print(f"   ℹ️  Citations unchanged")
-    print("\n" + "=" * 80)
-    print("✅ VERIFICATION COMPLETED")
-    print("=" * 80 + "\n")
-
     return {
         "messages": [AIMessage(content=answer, name="answer")],
         "answer": answer,
