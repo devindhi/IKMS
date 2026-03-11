@@ -31,6 +31,7 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://ikms-api.servecounterstrike.com",
         "https://ikms-api.servecounterstrike.com",
+        "https://ikms-frontend.vercel.app",
         "https://ikms-frontend-jeyv.vercel.app",
     ],
     allow_credentials=True,
