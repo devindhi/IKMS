@@ -9,5 +9,7 @@ language model to answer questions by retrieving information from the document. 
 OpenAI GPT-3.5 model (a "mini" GPT) for answering questions. Each part below introduces a component of
 the system with background and code snippets.
 
+Currently attention is all you need research paper is added to the vector database
+
 frontend - https://github.com/devindhi/IKMS-frontend
 backend - https://github.com/devindhi/IKMS
