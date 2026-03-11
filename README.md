@@ -8,3 +8,6 @@ language model to answer questions by retrieving information from the document. 
 1.0** (with the new LangGraph framework) for building our pipeline, **Pinecone** as the vector database, and an
 OpenAI GPT-3.5 model (a "mini" GPT) for answering questions. Each part below introduces a component of
 the system with background and code snippets.
+
+frontend - https://github.com/devindhi/IKMS-frontend
+backend - https://github.com/devindhi/IKMS
